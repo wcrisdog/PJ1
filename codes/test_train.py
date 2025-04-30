@@ -26,7 +26,7 @@ with gzip.open(train_labels_path, 'rb') as f:
 # choose 10000 samples from train set as validation set.
 idx = np.random.permutation(np.arange(num))
 # save the index.
-with open('idx.pickle', 'wb') as f:
+with open('idx_2.pickle', 'wb') as f:
         pickle.dump(idx, f)
 train_imgs = train_imgs[idx]
 train_labs = train_labs[idx]
@@ -39,14 +39,24 @@ train_labs = train_labs[10000:]
 train_imgs = train_imgs / train_imgs.max()
 valid_imgs = valid_imgs / valid_imgs.max()
 
+cnn_model = nn.models.Model_CNN(
+  conv_configs = [(1, 32, 3, 1, 1),(32,64, 3, 1, 1),],
+  fc_size_list=[64*28*28, 128, 10],
+  act_func='ReLU',
+  lambda_list_conv=[1e-4,1e-4],
+  lambda_list_fc=[1e-4,1e-4],
+  input_shape=(1,28,28)
+)
+
+
 linear_model = nn.models.Model_MLP([train_imgs.shape[-1], 600, 10], 'ReLU', [1e-4, 1e-4])
-optimizer = nn.optimizer.SGD(init_lr=0.06, model=linear_model)
-scheduler = nn.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[800, 2400, 4000], gamma=0.5)
+optimizer = nn.optimizer.SGD(init_lr=0.01, model=linear_model)
+scheduler = nn.lr_scheduler.StepLR(optimizer=optimizer, gamma=0.5)
 loss_fn = nn.op.MultiCrossEntropyLoss(model=linear_model, max_classes=train_labs.max()+1)
 
-runner = nn.runner.RunnerM(linear_model, optimizer, nn.metric.accuracy, loss_fn, scheduler=scheduler)
+runner = nn.runner.RunnerM(cnn_model, optimizer, nn.metric.accuracy, loss_fn, scheduler=scheduler)
 
-runner.train([train_imgs, train_labs], [valid_imgs, valid_labs], num_epochs=5, log_iters=100, save_dir=r'./codes/best_models')
+runner.train([train_imgs, train_labs], [valid_imgs, valid_labs], num_epochs=1, log_iters=100, save_dir=r'./codes/best_models_2')
 
 _, axes = plt.subplots(1, 2)
 axes.reshape(-1)

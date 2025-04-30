@@ -16,147 +16,107 @@ class Layer(ABC):
 
 class Linear(Layer):
     """
-    The linear layer for a neural network. You need to implement the forward function and the backward function.
+    Fully-connected layer: Y = X W + b
     """
-    def __init__(self, in_dim, out_dim, initialize_method=np.random.normal, weight_decay=False, weight_decay_lambda=1e-8) -> None:
+    def __init__(self, in_dim, out_dim,
+                 initialize_method=np.random.normal,
+                 weight_decay=False,
+                 weight_decay_lambda=1e-8) -> None:
         super().__init__()
         self.W = initialize_method(size=(in_dim, out_dim))
         self.b = initialize_method(size=(1, out_dim))
-        self.grads = {'W': np.zeros_like(self.W),'b': np.zeros_like(self.b)}
-        self.input = None # Record the input for backward process.
-
-        self.params = {'W' : self.W, 'b' : self.b}
-
-        self.weight_decay = weight_decay # whether using weight decay
-        self.weight_decay_lambda = weight_decay_lambda # control the intensity of weight decay
-            
+        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
+        self.input = None
+        self.params = {'W': self.W, 'b': self.b}
+        self.weight_decay = weight_decay
+        self.weight_decay_lambda = weight_decay_lambda
     
     def __call__(self, X) -> np.ndarray:
         return self.forward(X)
 
     def forward(self, X):
-        """
-        input: [batch_size, in_dim]
-        out: [batch_size, out_dim]
-        """
         self.input = X
-        return X @ self.W + self.b
+        return X.dot(self.W) + self.b
 
-    def backward(self, grad : np.ndarray):
-        """
-        input: [batch_size, out_dim] the grad passed by the next layer.
-        output: [batch_size, in_dim] the grad to be passed to the previous layer.
-        This function also calculates the grads for W and b.
-        """
+    def backward(self, grad):
         batch_size = self.input.shape[0]
-        self.grads['W'] = self.input.T @ grad
+        self.grads['W'] = self.input.T.dot(grad)
         self.grads['b'] = np.sum(grad, axis=0, keepdims=True)
         if self.weight_decay:
             self.grads['W'] += self.weight_decay_lambda * self.W
-        grad = grad @ self.W.T
-        return grad
-    
+        return grad.dot(self.W.T)
+
     def clear_grad(self):
-        self.grads['W'] = np.zeros_like(self.W)
-        self.grads['b'] = np.zeros_like(self.b)
+        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
 
 class conv2D(Layer):
     """
-    The 2D convolutional layer. Try to implement it on your own.
+    2D convolution layer (with padding & stride)
     """
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, initialize_method=np.random.normal, weight_decay=False, weight_decay_lambda=1e-8) -> None:
+    def __init__(self, in_channels, out_channels,
+                 kernel_size, stride=1, padding=0,
+                 initialize_method=np.random.normal,
+                 weight_decay=False,
+                 weight_decay_lambda=1e-8) -> None:
         super().__init__()
-        self.W = initialize_method(size=(out_channels, in_channels, kernel_size, kernel_size))
-        self.b = initialize_method(size=(1, out_channels, 1, 1))
-        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
-        self.input = None
-        self.stride = stride
-        self.padding = padding
-        self.params = {'W' : self.W, 'b' : self.b}
-        self.weight_decay = weight_decay # whether using weight decay
-        self.weight_decay_lambda = weight_decay_lambda # control the intensity of weight decay
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-
+        self.stride = stride
+        self.padding = padding
+        self.W = initialize_method(size=(out_channels, in_channels, kernel_size, kernel_size))
+        self.b = initialize_method(size=(1, out_channels, 1, 1))
+        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
+        self.params = {'W': self.W, 'b': self.b}
+        self.input = None
+        self.weight_decay = weight_decay
+        self.weight_decay_lambda = weight_decay_lambda
+    
     def __call__(self, X) -> np.ndarray:
         return self.forward(X)
-    
+
     def forward(self, X):
-        """
-        input X: [batch, channels, H, W]
-        W : [1, out, in, k, k]
-        no padding
-        """
-        batch, in_channels, H, W = X.shape
-        k = self.kernel_size
-        s = self.stride
-        p = self.padding
-
-        H_out = (H + 2 * p - k) // s + 1
-        W_out = (W + 2 * p - k) // s + 1
-
-        # padding = 0, so we need to add padding to the input
-        
+        batch, _, H, W = X.shape
+        k, s, p = self.kernel_size, self.stride, self.padding
+        H_out = (H + 2*p - k)//s + 1
+        W_out = (W + 2*p - k)//s + 1
+        X_pad = np.pad(X, ((0,0),(0,0),(p,p),(p,p)), mode='constant')
         out = np.zeros((batch, self.out_channels, H_out, W_out))
-
-        # convolution
         for b in range(batch):
             for oc in range(self.out_channels):
                 for i in range(H_out):
                     for j in range(W_out):
-                        h_start = i * s
-                        w_start = j * s
-                        window = X[b,
-                                       :,
-                                       h_start:h_start + k,
-                                       w_start:w_start + k]
+                        h0, w0 = i*s, j*s
+                        window = X_pad[b, :, h0:h0+k, w0:w0+k]
                         out[b, oc, i, j] = np.sum(window * self.W[oc]) + self.b[0, oc, 0, 0]
-        self.input = X
+        self.input = X_pad
         return out
 
     def backward(self, grads):
-        """
-        grads : [batch_size, out_channel, new_H, new_W]
-        """
-        X = self.input
-        batch, _, H_pad, W_pad = X.shape
-        k = self.kernel_size
-        s = self.stride
-        p = self.padding
-
+        X_pad = self.input
+        batch, _, H_pad, W_pad = X_pad.shape
+        k, s, p = self.kernel_size, self.stride, self.padding
         _, _, H_out, W_out = grads.shape
-
-        dX = np.zeros_like(X)
-        # reset gradients
+        dX_pad = np.zeros_like(X_pad)
         self.grads['W'].fill(0)
         self.grads['b'].fill(0)
-
         for b in range(batch):
             for oc in range(self.out_channels):
                 for i in range(H_out):
                     for j in range(W_out):
-                        h_start = i * s
-                        w_start = j * s
-                        window = X[b,
-                                       :,
-                                       h_start:h_start + k,
-                                       w_start:w_start + k]
-                        # accumulate W grad
+                        h0, w0 = i*s, j*s
+                        window = X_pad[b, :, h0:h0+k, w0:w0+k]
                         self.grads['W'][oc] += window * grads[b, oc, i, j]
-                        # accumulate b grad
                         self.grads['b'][0, oc, 0, 0] += grads[b, oc, i, j]
-                        # accumulate input grad
-                        dX[b,
-                               :,
-                               h_start:h_start + k,
-                               w_start:w_start + k] += self.W[oc] * grads[b, oc, i, j]
-
-        # add weight decay term
+                        dX_pad[b, :, h0:h0+k, w0:w0+k] += self.W[oc] * grads[b, oc, i, j]
         if self.weight_decay:
             self.grads['W'] += self.weight_decay_lambda * self.W
+        if p > 0:
+            return dX_pad[:, :, p:-p, p:-p]
+        return dX_pad
 
-        return dX
+    def clear_grad(self):
+        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
 
     
     def clear_grad(self):
@@ -211,9 +171,7 @@ class MultiCrossEntropyLoss(Layer):
         batch = predicts.shape[0]
         if self.has_softmax:
             # numeric stability
-            logits = predicts - np.max(predicts, axis=1, keepdims=True)
-            exp_scores = np.exp(logits)
-            probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
+            probs = softmax(predicts)
         else:
             probs = predicts
         self.probs = probs
@@ -260,9 +218,65 @@ class L2Regularization(Layer):
             # add regularization gradient to weight grads
             if 'W' in l.grads:
                 l.grads['W'] += self.lambda_val * l.W
+
+class Dropout(Layer):
+    """
+    Dropout layer: during training, zero each unit with probability p.
+    Scales remaining activations by 1/(1-p) to keep expectation constant.
+    """
+    def __init__(self, p=0.5) -> None:
+        super().__init__()
+        self.p = p
+        self.mask = None
+        self.optimizable = False
+
+    def forward(self, X, training=True):
+        if not training or self.p == 0:
+            return X
+        # create dropout mask
+        self.mask = (np.random.rand(*X.shape) > self.p) / (1.0 - self.p)
+        return X * self.mask
+
+    def backward(self, grad):
+        # only propagate through the surviving units
+        return grad * (self.mask if self.mask is not None else 1.0)
+
        
 def softmax(X):
     x_max = np.max(X, axis=1, keepdims=True)
     x_exp = np.exp(X - x_max)
     partition = np.sum(x_exp, axis=1, keepdims=True)
     return x_exp / partition
+
+class Flatten(Layer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.input_shape = None
+        self.optimizable = False
+    
+    def __call__(self, X):
+        return self.forward(X)
+
+    def forward(self, X):
+        self.input_shape = X.shape
+        return X.reshape(X.shape[0], -1)
+
+    def backward(self, grad):
+        return grad.reshape(self.input_shape)
+
+class Reshape(Layer):
+    def __init__(self, shape) -> None:
+        super().__init__()
+        self.shape = shape
+        self.input_shape = None
+        self.optimizable = False
+    
+    def __call__(self, X):
+        return self.forward(X)
+
+    def forward(self, X):
+        self.input_shape = X.shape
+        return X.reshape((X.shape[0],) + self.shape)
+
+    def backward(self, grad):
+        return grad.reshape(self.input_shape)
