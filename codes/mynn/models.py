@@ -1,4 +1,4 @@
-from op import *
+from .op import *
 import pickle
 
 class Model_MLP(Layer):

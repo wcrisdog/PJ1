@@ -26,7 +26,7 @@ class StepLR(scheduler):
 class MultiStepLR(scheduler):
     def __init__(self, optimizer, milestones, gamma=0.1) -> None:
         super().__init__(optimizer)
-        self.milestones = sorted(milestones)
+        self.milestones = milestones
         self.gamma = gamma
 
     def step(self) -> None:

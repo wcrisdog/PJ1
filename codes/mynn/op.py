@@ -1,7 +1,7 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 import numpy as np
 
-class Layer():
+class Layer(ABC):
     def __init__(self) -> None:
         self.optimizable = True
     
@@ -22,7 +22,7 @@ class Linear(Layer):
         super().__init__()
         self.W = initialize_method(size=(in_dim, out_dim))
         self.b = initialize_method(size=(1, out_dim))
-        self.grads = {'W' : None, 'b' : None}
+        self.grads = {'W': np.zeros_like(self.W),'b': np.zeros_like(self.b)}
         self.input = None # Record the input for backward process.
 
         self.params = {'W' : self.W, 'b' : self.b}
@@ -49,15 +49,16 @@ class Linear(Layer):
         This function also calculates the grads for W and b.
         """
         batch_size = self.input.shape[0]
-        self.grads['W'] = self.input.T @ grad / batch_size
-        self.grads['b'] = np.sum(grad, axis=0, keepdims=True) / batch_size
+        self.grads['W'] = self.input.T @ grad
+        self.grads['b'] = np.sum(grad, axis=0, keepdims=True)
         if self.weight_decay:
-            self.grads['W'] += self.weight_decay_lambda * self.W / batch_size
+            self.grads['W'] += self.weight_decay_lambda * self.W
         grad = grad @ self.W.T
         return grad
     
     def clear_grad(self):
-        self.grads = {'W' : None, 'b' : None}
+        self.grads['W'] = np.zeros_like(self.W)
+        self.grads['b'] = np.zeros_like(self.b)
 
 class conv2D(Layer):
     """
@@ -67,7 +68,7 @@ class conv2D(Layer):
         super().__init__()
         self.W = initialize_method(size=(out_channels, in_channels, kernel_size, kernel_size))
         self.b = initialize_method(size=(1, out_channels, 1, 1))
-        self.grads = {'W' : None, 'b' : None}
+        self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
         self.input = None
         self.stride = stride
         self.padding = padding
@@ -159,7 +160,8 @@ class conv2D(Layer):
 
     
     def clear_grad(self):
-        self.grads = {'W' : None, 'b' : None}
+        self.grads['W'] = np.zeros_like(self.W)
+        self.grads['b'] = np.zeros_like(self.b)
         
 class ReLU(Layer):
     """
@@ -221,15 +223,14 @@ class MultiCrossEntropyLoss(Layer):
         correct_logprobs = -np.log(probs[np.arange(batch), labels] + 1e-12)
         loss = np.mean(correct_logprobs)
 
+        dlogits = probs.copy()
+        dlogits[np.arange(batch), labels] -= 1
+        dlogits /= batch
+        self.grads = dlogits
+
         return loss
     
     def backward(self):
-        # first compute the grads from the loss to the input
-        batch = self.probs.shape[0]
-        dlogits = self.probs.copy()                     # shape [batch, D]
-        dlogits[np.arange(batch), self.labels] -= 1     # subtract 1 at the true class
-        dlogits /= batch
-        self.grads = dlogits
         # Then send the grads to model for back propagation
         self.model.backward(self.grads)
 

@@ -46,7 +46,7 @@ loss_fn = nn.op.MultiCrossEntropyLoss(model=linear_model, max_classes=train_labs
 
 runner = nn.runner.RunnerM(linear_model, optimizer, nn.metric.accuracy, loss_fn, scheduler=scheduler)
 
-runner.train([train_imgs, train_labs], [valid_imgs, valid_labs], num_epochs=5, log_iters=100, save_dir=r'./best_models')
+runner.train([train_imgs, train_labs], [valid_imgs, valid_labs], num_epochs=5, log_iters=100, save_dir=r'./codes/best_models')
 
 _, axes = plt.subplots(1, 2)
 axes.reshape(-1)

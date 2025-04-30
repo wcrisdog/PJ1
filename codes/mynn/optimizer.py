@@ -43,16 +43,16 @@ class MomentGD(Optimizer):
             if layer.optimizable == True:
                 for key, param in layer.params.items():
                 # apply weight decay exactly as in SGD
-                if layer.weight_decay:
-                    param *= (1 - self.init_lr * layer.weight_decay_lambda)
+                    if layer.weight_decay:
+                        param *= (1 - self.init_lr * layer.weight_decay_lambda)
 
-                # fetch grad and previous velocity
-                grad = layer.grads[key]
-                v_prev = self.velocity[layer][key]
+                    # fetch grad and previous velocity
+                    grad = layer.grads[key]
+                    v_prev = self.velocity[layer][key]
 
-                # momentum update
-                v_new = self.beta * v_prev - self.init_lr * grad
-                self.velocity[layer][key] = v_new
+                    # momentum update
+                    v_new = self.beta * v_prev - self.init_lr * grad
+                    self.velocity[layer][key] = v_new
 
-                # apply update
-                layer.params[key] += v_new
+                    # apply update
+                    layer.params[key] += v_new
