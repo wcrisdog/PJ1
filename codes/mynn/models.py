@@ -1,4 +1,4 @@
-from .op import *
+from op import *
 import pickle
 
 class Model_MLP(Layer):
@@ -78,20 +78,101 @@ class Model_CNN(Layer):
     """
     A model with conv2D layers. Implement it using the operators you have written in op.py
     """
-    def __init__(self):
-        pass
+    def __init__(self,conv_configs=None,fc_size_list=None,act_func='ReLU',lambda_list_conv=None,lambda_list_fc=None):
+        super().__init__()
+        self.conv_configs = conv_configs
+        self.fc_size_list = fc_size_list
+        self.act_func = act_func
+        self.layers = []
+        if conv_configs is not None:
+            for idx, cfg in enumerate(conv_configs):
+                in_c, out_c, k, s, p = cfg
+                conv = conv2D(in_c, out_c, k, stride=s, padding=p)
+                if lambda_list_conv:
+                    conv.weight_decay = True
+                    conv.weight_decay_lambda = lambda_list_conv[idx]
+                self.layers.append(conv)
+                if act_func == 'ReLU':
+                    self.layers.append(ReLU())
+                else:
+                    raise NotImplementedError
+        if fc_size_list is not None:
+            self.layers.append(Flatten())
+            for i in range(len(fc_size_list) - 1):
+                lin = Linear(fc_size_list[i], fc_size_list[i+1])
+                if lambda_list_fc:
+                    lin.weight_decay = True
+                    lin.weight_decay_lambda = lambda_list_fc[i]
+                self.layers.append(lin)
+                if i < len(fc_size_list) - 2:
+                    if act_func == 'ReLU':
+                        self.layers.append(ReLU())
+                    else:
+                        raise NotImplementedError
 
     def __call__(self, X):
         return self.forward(X)
 
     def forward(self, X):
-        pass
+        out = X
+        for layer in self.layers:
+            out = layer(out)
+        return out
 
     def backward(self, loss_grad):
-        pass
-    
-    def load_model(self, param_list):
-        pass
-        
+        grad = loss_grad
+        for layer in reversed(self.layers):
+            grad = layer.backward(grad)
+        return grad
+
+    def load_model(self, param_list_path):
+        with open(param_list_path, 'rb') as f:
+            params = pickle.load(f)
+        self.conv_configs, self.fc_size_list, self.act_func = params[0], params[1], params[2]
+        self.layers = []
+        idx = 3
+        for cfg in self.conv_configs:
+            in_c, out_c, k, s, p = cfg
+            conv = conv2D(in_c, out_c, k, stride=s, padding=p)
+            p_dict = params[idx]
+            conv.W = p_dict['W']
+            conv.b = p_dict['b']
+            conv.params['W'], conv.params['b'] = conv.W, conv.b
+            conv.weight_decay = p_dict['weight_decay']
+            conv.weight_decay_lambda = p_dict['lambda']
+            idx += 1
+            self.layers.append(conv)
+            if self.act_func == 'ReLU':
+                self.layers.append(ReLU())
+            else:
+                raise NotImplementedError
+        self.layers.append(Flatten())
+        for _ in range(len(self.fc_size_list) - 1):
+            lin = Linear(self.fc_size_list[_], self.fc_size_list[_+1])
+            p_dict = params[idx]
+            lin.W = p_dict['W']
+            lin.b = p_dict['b']
+            lin.params['W'], lin.params['b'] = lin.W, lin.b
+            lin.weight_decay = p_dict['weight_decay']
+            lin.weight_decay_lambda = p_dict['lambda']
+            idx += 1
+            self.layers.append(lin)
+            if _ < len(self.fc_size_list) - 2:
+                if self.act_func == 'ReLU':
+                    self.layers.append(ReLU())
+                else:
+                    raise NotImplementedError
+
     def save_model(self, save_path):
-        pass
+        param_list = [self.conv_configs, self.fc_size_list, self.act_func]
+        for layer in self.layers:
+            if layer.optimizable:
+                param_list.append({
+                    'W': layer.params['W'],
+                    'b': layer.params['b'],
+                    'weight_decay': layer.weight_decay,
+                    'lambda': layer.weight_decay_lambda
+                })
+        with open(save_path, 'wb') as f:
+            pickle.dump(param_list, f)
+

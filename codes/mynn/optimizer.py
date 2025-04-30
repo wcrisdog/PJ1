@@ -26,8 +26,33 @@ class SGD(Optimizer):
 
 
 class MomentGD(Optimizer):
-    def __init__(self, init_lr, model, mu):
-        pass
-    
+    def __init__(self, init_lr, model, beta=0.9):
+        super().__init__(init_lr, model)
+        self.beta = beta
+        # create per-layer, per-parameter velocity slots
+        self.velocity = {}
+        for layer in self.model.layers:
+            if layer.optimizable:
+                self.velocity[layer] = {
+                    key: np.zeros_like(param)
+                    for key, param in layer.params.items()
+                }
+
     def step(self):
-        pass
+        for layer in self.model.layers:
+            if layer.optimizable == True:
+                for key, param in layer.params.items():
+                # apply weight decay exactly as in SGD
+                if layer.weight_decay:
+                    param *= (1 - self.init_lr * layer.weight_decay_lambda)
+
+                # fetch grad and previous velocity
+                grad = layer.grads[key]
+                v_prev = self.velocity[layer][key]
+
+                # momentum update
+                v_new = self.beta * v_prev - self.init_lr * grad
+                self.velocity[layer][key] = v_new
+
+                # apply update
+                layer.params[key] += v_new
