@@ -4,13 +4,17 @@ import numpy as np
 class Layer(ABC):
     def __init__(self) -> None:
         self.optimizable = True
-    
+
+    def __call__(self, x):
+        # ensure forward is always invoked
+        return self.forward(x)
+
     @abstractmethod
-    def forward():
+    def forward(self, x):
         pass
 
     @abstractmethod
-    def backward():
+    def backward(self, grad):
         pass
 
 
@@ -26,28 +30,26 @@ class Linear(Layer):
         self.W = initialize_method(size=(in_dim, out_dim))
         self.b = initialize_method(size=(1, out_dim))
         self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
-        self.input = None
         self.params = {'W': self.W, 'b': self.b}
+        self.input = None
         self.weight_decay = weight_decay
         self.weight_decay_lambda = weight_decay_lambda
-    
-    def __call__(self, X) -> np.ndarray:
-        return self.forward(X)
 
     def forward(self, X):
         self.input = X
-        return X.dot(self.W) + self.b
+        return X @ self.W + self.b
 
     def backward(self, grad):
-        batch_size = self.input.shape[0]
-        self.grads['W'] = self.input.T.dot(grad)
+        # grad: [batch, out_dim]
+        self.grads['W'] = self.input.T @ grad
         self.grads['b'] = np.sum(grad, axis=0, keepdims=True)
         if self.weight_decay:
             self.grads['W'] += self.weight_decay_lambda * self.W
-        return grad.dot(self.W.T)
+        return grad @ self.W.T
 
     def clear_grad(self):
         self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
+
 
 class conv2D(Layer):
     """
@@ -71,9 +73,6 @@ class conv2D(Layer):
         self.input = None
         self.weight_decay = weight_decay
         self.weight_decay_lambda = weight_decay_lambda
-    
-    def __call__(self, X) -> np.ndarray:
-        return self.forward(X)
 
     def forward(self, X):
         batch, _, H, W = X.shape
@@ -118,83 +117,90 @@ class conv2D(Layer):
     def clear_grad(self):
         self.grads = {'W': np.zeros_like(self.W), 'b': np.zeros_like(self.b)}
 
-    
-    def clear_grad(self):
-        self.grads['W'] = np.zeros_like(self.W)
-        self.grads['b'] = np.zeros_like(self.b)
-        
+
 class ReLU(Layer):
-    """
-    An activation layer.
-    """
+    """ReLU activation"""
     def __init__(self) -> None:
         super().__init__()
         self.input = None
-
-        self.optimizable =False
-
-    def __call__(self, X):
-        return self.forward(X)
+        self.optimizable = False
 
     def forward(self, X):
         self.input = X
-        output = np.where(X<0, 0, X)
-        return output
-    
-    def backward(self, grads):
-        assert self.input.shape == grads.shape
-        output = np.where(self.input < 0, 0, grads)
-        return output
+        return np.where(X < 0, 0, X)
+
+    def backward(self, grad):
+        return np.where(self.input < 0, 0, grad)
+
 
 class MultiCrossEntropyLoss(Layer):
-    """
-    A multi-cross-entropy loss layer, with Softmax layer in it, which could be cancelled by method cancel_softmax
-    """
-    def __init__(self, model = None, max_classes = 10) -> None:
+    """Softmax + Cross-Entropy Loss"""
+    def __init__(self, model=None) -> None:
         super().__init__()
         self.model = model
         self.has_softmax = True
         self.probs = None
         self.labels = None
         self.grads = None
-        self.max_classes = max_classes
 
-    def __call__(self, predicts, labels):
-        return self.forward(predicts, labels)
-    
-    def forward(self, predicts, labels):
-        """
-        predicts: [batch_size, D]
-        labels : [batch_size, ]
-        This function generates the loss.
-        """
-        batch = predicts.shape[0]
+    def __call__(self, logits, labels):
+        # override base __call__ to accept both predicts and labels
+        return self.forward(logits, labels)
+
+    def forward(self, logits, labels):
+        batch = logits.shape[0]
         if self.has_softmax:
-            # numeric stability
-            probs = softmax(predicts)
+            z = logits - np.max(logits, axis=1, keepdims=True)
+            ez = np.exp(z)
+            probs = ez / np.sum(ez, axis=1, keepdims=True)
         else:
-            probs = predicts
-        self.probs = probs
-        self.labels = labels
-
-        # cross-entropy
-        correct_logprobs = -np.log(probs[np.arange(batch), labels] + 1e-12)
-        loss = np.mean(correct_logprobs)
-
+            probs = logits
+        self.probs, self.labels = probs, labels
+        loss = -np.mean(np.log(probs[np.arange(batch), labels] + 1e-12))
         dlogits = probs.copy()
         dlogits[np.arange(batch), labels] -= 1
         dlogits /= batch
         self.grads = dlogits
-
         return loss
-    
+
     def backward(self):
-        # Then send the grads to model for back propagation
+        if self.model is None:
+            return self.grads
         self.model.backward(self.grads)
 
     def cancel_soft_max(self):
         self.has_softmax = False
         return self
+
+    """Softmax + Cross-Entropy Loss"""
+    def __init__(self, model=None) -> None:
+        super().__init__()
+        self.model = model
+        self.has_softmax = True
+        self.probs = None
+        self.labels = None
+        self.grads = None
+
+    def forward(self, logits, labels):
+        batch = logits.shape[0]
+        if self.has_softmax:
+            z = logits - np.max(logits, axis=1, keepdims=True)
+            ez = np.exp(z)
+            probs = ez / np.sum(ez, axis=1, keepdims=True)
+        else:
+            probs = logits
+        self.probs, self.labels = probs, labels
+        loss = -np.mean(np.log(probs[np.arange(batch), labels] + 1e-12))
+        dlogits = probs.copy()
+        dlogits[np.arange(batch), labels] -= 1
+        dlogits /= batch
+        self.grads = dlogits
+        return loss
+
+    def backward(self):
+        if self.model is None:
+            return self.grads
+        self.model.backward(self.grads)
     
 class L2Regularization(Layer):
     """
@@ -243,10 +249,9 @@ class Dropout(Layer):
 
        
 def softmax(X):
-    x_max = np.max(X, axis=1, keepdims=True)
-    x_exp = np.exp(X - x_max)
-    partition = np.sum(x_exp, axis=1, keepdims=True)
-    return x_exp / partition
+    z = X - np.max(X, axis=1, keepdims=True)
+    ez = np.exp(z)
+    return ez / np.sum(ez, axis=1, keepdims=True)
 
 class Flatten(Layer):
     def __init__(self) -> None:
