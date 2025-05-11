@@ -39,8 +39,8 @@ train_labs = train_labs[10000:]
 train_imgs = train_imgs / train_imgs.max()
 valid_imgs = valid_imgs / valid_imgs.max()
 
-train_imgs = train_imgs.reshape(-1, 1, 28, 28)
-valid_imgs = valid_imgs.reshape(-1, 1, 28, 28)
+# train_imgs = train_imgs.reshape(-1, 1, 28, 28)
+# valid_imgs = valid_imgs.reshape(-1, 1, 28, 28)
 
 cnn_model = nn.models.Model_CNN(
     conv_configs=[(1, 32, 3, 1, 1),
@@ -52,13 +52,25 @@ cnn_model = nn.models.Model_CNN(
     input_shape=(1, 28, 28)
 )
 
+linear_model = nn.models.Model_MLP(
+    size_list    = [28*28, 600, 10],
+    act_func     = 'ReLU',
+    lambda_list  = [1e-4, 1e-4]
+)
 
-linear_model = nn.models.Model_MLP([train_imgs.shape[-1], 600, 10], 'ReLU', [1e-4, 1e-4])
-optimizer = nn.optimizer.SGD(init_lr=0.01, model=cnn_model)
-scheduler = nn.lr_scheduler.StepLR(optimizer=optimizer, gamma=0.5)
-loss_fn   = nn.op.MultiCrossEntropyLoss(model=cnn_model)
+optimizer = nn.optimizer.MomentGD(init_lr=0.01, model=linear_model)
+scheduler = nn.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones= [100, 500, 1000], gamma=0.5)
+loss_fn   = nn.op.MultiCrossEntropyLoss(model=linear_model)
 
-runner = nn.runner.RunnerM(linear_model, optimizer, nn.metric.accuracy, loss_fn, scheduler=scheduler)
+runner = nn.runner.RunnerM(
+    model      = linear_model,
+    optimizer  = optimizer,
+    metric     = nn.metric.accuracy,
+    loss_fn    = loss_fn,
+    batch_size = 32,
+    scheduler  = scheduler
+)
+
 
 runner.train([train_imgs, train_labs], [valid_imgs, valid_labs], num_epochs=1, log_iters=100, save_dir=r'./codes/saved_models')
 

@@ -1,86 +1,104 @@
 import numpy as np
 import os
 from tqdm import tqdm
+from math import ceil
 
 class RunnerM():
     """
-    This is an exmaple to train, evaluate, save, load the model. However, some of the function calling may not be correct 
-    due to the different implementation of those models.
+    Train, evaluate, save & load a model.
     """
-    def __init__(self, model, optimizer, metric, loss_fn, batch_size=32, scheduler=None):
-        self.model = model
-        self.optimizer = optimizer
-        self.loss_fn = loss_fn
-        self.metric = metric
-        self.scheduler = scheduler
+    def __init__(self, model, optimizer, metric, loss_fn,
+                 batch_size=32, scheduler=None):
+        self.model      = model
+        self.optimizer  = optimizer
+        self.loss_fn    = loss_fn
+        self.metric     = metric
+        self.scheduler  = scheduler
         self.batch_size = batch_size
 
         self.train_scores = []
-        self.dev_scores = []
-        self.train_loss = []
-        self.dev_loss = []
+        self.dev_scores   = []
+        self.train_loss   = []
+        self.dev_loss     = []
 
     def train(self, train_set, dev_set, **kwargs):
-
         num_epochs = kwargs.get("num_epochs", 0)
-        log_iters = kwargs.get("log_iters", 100)
-        save_dir = kwargs.get("save_dir", "best_model")
+        log_iters  = kwargs.get("log_iters", 100)
+        save_dir   = kwargs.get("save_dir", "best_model")
+
+        X_train, y_train = train_set
+        X_dev,   y_dev   = dev_set
+        batch_size        = self.batch_size
 
         if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
+            os.makedirs(save_dir)
 
-        best_score = 0
+        best_score = -np.inf
 
         for epoch in range(num_epochs):
-            X, y = train_set
+            # shuffle
+            idx = np.random.permutation(len(X_train))
+            X_train, y_train = X_train[idx], y_train[idx]
 
-            assert X.shape[0] == y.shape[0]
+            num_batches = ceil(len(X_train) / batch_size)
+            for iteration in range(num_batches):
+                start = iteration * batch_size
+                end   = start + batch_size
+                x_batch = X_train[start:end]
+                y_batch = y_train[start:end]
+                if len(x_batch) == 0:
+                    break
 
-            idx = np.random.permutation(range(X.shape[0]))
+                # forward
+                logits    = self.model(x_batch)
+                trn_loss  = self.loss_fn(logits, y_batch)
+                trn_acc   = self.metric(logits, y_batch)
 
-            X = X[idx]
-            y = y[idx]
-
-            for iteration in range(int(X.shape[0] / self.batch_size) + 1):
-                train_X = X[iteration * self.batch_size : (iteration+1) * self.batch_size]
-                train_y = y[iteration * self.batch_size : (iteration+1) * self.batch_size]
-
-                logits = self.model(train_X)
-                trn_loss = self.loss_fn(logits, train_y)
+                # record
                 self.train_loss.append(trn_loss)
-                
-                trn_score = self.metric(logits, train_y)
-                self.train_scores.append(trn_score)
+                self.train_scores.append(trn_acc)
 
-                # the loss_fn layer will propagate the gradients.
+                # backward & update
                 self.loss_fn.backward()
-
                 self.optimizer.step()
-                if self.scheduler is not None:
+                if self.scheduler:
                     self.scheduler.step()
-                
-                dev_score, dev_loss = self.evaluate(dev_set)
-                self.dev_scores.append(dev_score)
+
+                # evaluate on dev
+                dev_acc, dev_loss = self.evaluate(dev_set)
+                self.dev_scores.append(dev_acc)
                 self.dev_loss.append(dev_loss)
 
-                if (iteration) % log_iters == 0:
-                    print(f"epoch: {epoch}, iteration: {iteration}")
-                    print(f"[Train] loss: {trn_loss}, score: {trn_score}")
-                    print(f"[Dev] loss: {dev_loss}, score: {dev_score}")
+                # logging
+                if iteration % log_iters == 0:
+                    print(f"Epoch {epoch}, Iter {iteration}/{num_batches}")
+                    print(f"  [Train] loss={trn_loss:.4f}, acc={trn_acc:.4f}")
+                    print(f"  [ Dev ] loss={dev_loss:.4f}, acc={dev_acc:.4f}")
 
-            if dev_score > best_score:
-                save_path = os.path.join(save_dir, 'best_model.pickle')
-                self.save_model(save_path)
-                print(f"best accuracy performence has been updated: {best_score:.5f} --> {dev_score:.5f}")
-                best_score = dev_score
+            # save best
+            if dev_acc > best_score:
+                best_score = dev_acc
+                best_path  = os.path.join(save_dir, 'best_model.pickle')
+                self.save_model(best_path)
+                print(f"New best dev acc: {best_score:.4f} (model saved)")
+
         self.best_score = best_score
 
     def evaluate(self, data_set):
         X, y = data_set
-        logits = self.model(X)
-        loss = self.loss_fn(logits, y)
-        score = self.metric(logits, y)
-        return score, loss
-    
+        logits   = self.model(X)
+        loss     = self.loss_fn(logits, y)
+        acc      = self.metric(logits, y)
+        return acc, loss
+
     def save_model(self, save_path):
+        """
+        Delegates to the model's save_model method.
+        """
         self.model.save_model(save_path)
+
+    def load_model(self, load_path):
+        """
+        Delegates to the model's load_model method.
+        """
+        self.model.load_model(load_path)
